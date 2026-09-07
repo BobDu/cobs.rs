@@ -286,7 +286,20 @@ pub fn encode_with_sentinel(source: &[u8], dest: &mut [u8], sentinel: u8) -> usi
 
 #[cfg(feature = "alloc")]
 /// Encodes the `source` buffer into a vector, using the [encode] function.
+///
+/// On x86-64 this uses an AVX2 implementation when the CPU supports it, which produces the same
+/// bytes as the scalar one.
 pub fn encode_vec(source: &[u8]) -> alloc::vec::Vec<u8> {
+    #[cfg(target_arch = "x86_64")]
+    if crate::simd_x86::avx2_available() {
+        // SAFETY: AVX2 support was just checked.
+        return unsafe { crate::simd_x86::encode_vec(source) };
+    }
+    encode_vec_scalar(source)
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn encode_vec_scalar(source: &[u8]) -> alloc::vec::Vec<u8> {
     let mut encoded = alloc::vec![0; crate::max_encoding_length(source.len())];
     let encoded_len = encode(source, &mut encoded[..]);
     encoded.truncate(encoded_len);

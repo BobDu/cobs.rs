@@ -36,6 +36,8 @@ extern crate std;
 // In the future, don't do this.
 mod dec;
 mod enc;
+#[cfg(all(target_arch = "x86_64", feature = "alloc"))]
+mod simd_x86;
 pub use crate::dec::*;
 pub use crate::enc::*;
 

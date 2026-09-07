@@ -605,7 +605,20 @@ pub fn decode_in_place_with_sentinel(buff: &mut [u8], sentinel: u8) -> Result<us
 
 #[cfg(feature = "alloc")]
 /// Decodes the `source` buffer into a vector.
+///
+/// On x86-64 this uses an AVX2 implementation when the CPU supports it, which returns the same
+/// values and the same errors as the scalar one.
 pub fn decode_vec(source: &[u8]) -> Result<alloc::vec::Vec<u8>, DecodeError> {
+    #[cfg(target_arch = "x86_64")]
+    if crate::simd_x86::avx2_available() {
+        // SAFETY: AVX2 support was just checked.
+        return unsafe { crate::simd_x86::decode_vec(source) };
+    }
+    decode_vec_scalar(source)
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn decode_vec_scalar(source: &[u8]) -> Result<alloc::vec::Vec<u8>, DecodeError> {
     let mut decoded = alloc::vec![0; source.len()];
     let result = decode(source, &mut decoded[..])?;
     decoded.truncate(result.frame_size());
