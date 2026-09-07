@@ -193,9 +193,76 @@ impl<'a> CobsEncoder<'a> {
 /// encoded message. You can calculate the size the `dest` buffer needs to be with
 /// the [crate::max_encoding_length] function.
 pub fn encode(source: &[u8], dest: &mut [u8]) -> usize {
-    let mut enc = CobsEncoder::new(dest);
-    enc.push(source).unwrap();
-    enc.finalize()
+    encode_bulk(source, dest).unwrap()
+}
+
+/// Encodes `source` into `dest` a group at a time rather than a byte at a time.
+///
+/// The byte-at-a-time state machine in [`CobsEncoder`] has to be kept for streaming callers, but
+/// when the whole message is available up front the encoder can work on whole groups: find the
+/// next zero, copy everything before it in one go, write the code byte. Each literal byte is then
+/// touched by a `copy_from_slice` rather than by its own state transition.
+fn encode_bulk(source: &[u8], dest: &mut [u8]) -> Result<usize, DestBufTooSmallError> {
+    // dest[0] is the code byte of the first group; it is written once the group is closed.
+    let mut out = 1;
+    let mut code_idx = 0;
+    let mut run_len = 0;
+    // Whether the last group was closed because it filled up rather than because a zero ended it.
+    // A message ending exactly on a full 254-byte group needs no further group, which is the one
+    // byte COBS saves in that case.
+    let mut ended_on_full_run = false;
+    let mut i = 0;
+
+    loop {
+        let zero_at = source[i..].iter().position(|&b| b == 0).map(|p| i + p);
+        let run_end = zero_at.unwrap_or(source.len());
+        let mut s = i;
+
+        // A group holds at most 254 literal bytes, so a long run spans several of them.
+        while run_len + (run_end - s) >= 254 {
+            let take = 254 - run_len;
+            dest.get_mut(out..out + take)
+                .ok_or(DestBufTooSmallError)?
+                .copy_from_slice(&source[s..s + take]);
+            out += take;
+            s += take;
+            *dest.get_mut(code_idx).ok_or(DestBufTooSmallError)? = 0xFF;
+            code_idx = out;
+            out += 1;
+            run_len = 0;
+            ended_on_full_run = true;
+        }
+
+        let rest = run_end - s;
+        if rest > 0 {
+            dest.get_mut(out..out + rest)
+                .ok_or(DestBufTooSmallError)?
+                .copy_from_slice(&source[s..run_end]);
+            out += rest;
+            run_len += rest;
+            ended_on_full_run = false;
+        }
+
+        match zero_at {
+            Some(zero_at) => {
+                *dest.get_mut(code_idx).ok_or(DestBufTooSmallError)? = (run_len + 1) as u8;
+                code_idx = out;
+                out += 1;
+                run_len = 0;
+                ended_on_full_run = false;
+                i = zero_at + 1;
+            }
+            None => break,
+        }
+    }
+
+    if ended_on_full_run && run_len == 0 {
+        out -= 1;
+    } else if let Some(code) = dest.get_mut(code_idx) {
+        // As in `CobsEncoder::finalize`: a final code byte that does not fit is not an error.
+        *code = (run_len + 1) as u8;
+    }
+    Ok(out)
 }
 
 /// Encodes the `source` buffer into the `dest` buffer, including the default sentinel values 0
@@ -234,9 +301,7 @@ pub fn encode_including_sentinels(source: &[u8], dest: &mut [u8]) -> usize {
 ///
 /// If the destination buffer does not have enough room, an error will be returned.
 pub fn try_encode(source: &[u8], dest: &mut [u8]) -> Result<usize, DestBufTooSmallError> {
-    let mut enc = CobsEncoder::new(dest);
-    enc.push(source)?;
-    Ok(enc.finalize())
+    encode_bulk(source, dest)
 }
 
 /// Encodes the `source` buffer into the `dest` buffer, including the default sentinel values 0

@@ -352,6 +352,38 @@ mod tests {
         assert_eq!(&src, &decoded);
     }
 
+    /// A message that ends exactly on a full 254-byte group needs no further group, but only when
+    /// nothing else follows it. With a zero earlier in the message the saved byte is still saved,
+    /// which is the case `issue_19_test_254_block_all_ones` does not reach.
+    #[test]
+    fn encode_group_boundary_at_end_after_a_zero() {
+        let mut src = alloc::vec![0u8];
+        src.extend(core::iter::repeat_n(0xCDu8, 254));
+        let encoded = encode_vec(&src);
+
+        assert_eq!(encoded.len(), 256);
+        assert_eq!(encoded[0], 0x01);
+        assert_eq!(encoded[1], 0xFF);
+        assert!(!encoded.contains(&0));
+        assert_eq!(decode_vec(&encoded).unwrap(), src);
+    }
+
+    /// Sentinels before a frame leave the decoder idle rather than ending a frame, and
+    /// `parsed_size` counts them.
+    #[test]
+    fn decode_skips_leading_sentinels() {
+        let mut framed = alloc::vec![0u8, 0u8];
+        framed.extend(encode_vec(b"hello"));
+        framed.push(0);
+        framed.extend(encode_vec(b"world"));
+
+        let mut dest = [0u8; 16];
+        let report = decode(&framed, &mut dest).unwrap();
+
+        assert_eq!(&dest[..report.frame_size()], b"hello");
+        assert_eq!(report.parsed_size(), 9);
+    }
+
     #[cfg(feature = "alloc")]
     mod alloc_tests {
         use super::*;

@@ -462,29 +462,51 @@ pub fn decode(source: &[u8], dest: &mut [u8]) -> Result<DecodeReport, DecodeErro
         return Err(DecodeError::EmptyFrame);
     }
 
-    let mut dec = CobsDecoder::new(dest);
+    // The streaming decoder stays idle on leading sentinels rather than ending the frame on them,
+    // so a frame preceded by one still decodes.
+    let Some(start) = source.iter().position(|&b| b != 0) else {
+        return Err(DecodeError::InvalidFrame { decoded_bytes: 0 });
+    };
+    let terminator = source[start..]
+        .iter()
+        .position(|&b| b == 0)
+        .map(|p| start + p);
+    let limit = terminator.unwrap_or(source.len());
 
-    // Did we decode a message, using some or all of the buffer?
-    if let Some(result) = dec.push(source)? {
-        return Ok(result);
-    }
+    let mut out = 0;
+    let mut i = start;
+    while i < limit {
+        // Every byte below `limit` is non-zero, so `code` is a group length, never a sentinel.
+        let code = source[i] as usize;
+        let run = code - 1;
+        let from = i + 1;
 
-    // If we consumed the entire buffer, but did NOT get a message,
-    // AND the message did not end with a zero, try providing one to
-    // complete the decoding.
-    if source.last() != Some(&0) {
-        // Explicitly push sentinel of zero
-        if let Some(result) = dec.push(&[0])? {
-            return Ok(DecodeReport {
-                frame_size: result.frame_size(),
-                parsed_size: source.len(),
-            });
+        if from + run > limit {
+            // The group runs past the end of the frame. Report the same byte count the
+            // byte-at-a-time decoder would have written before it noticed.
+            for &byte in &source[from..limit] {
+                *dest.get_mut(out).ok_or(DecodeError::TargetBufTooSmall)? = byte;
+                out += 1;
+            }
+            return Err(DecodeError::InvalidFrame { decoded_bytes: out });
+        }
+
+        dest.get_mut(out..out + run)
+            .ok_or(DecodeError::TargetBufTooSmall)?
+            .copy_from_slice(&source[from..from + run]);
+        out += run;
+        i = from + run;
+
+        // A group shorter than 0xFF stands for a zero that was replaced, except at the frame end.
+        if code != 0xFF && i < limit {
+            *dest.get_mut(out).ok_or(DecodeError::TargetBufTooSmall)? = 0;
+            out += 1;
         }
     }
 
-    // Nope, no early message, no missing terminator, just failed to decode
-    Err(DecodeError::InvalidFrame {
-        decoded_bytes: dec.inner.dest_idx,
+    Ok(DecodeReport {
+        frame_size: out,
+        parsed_size: terminator.map_or(source.len(), |t| t + 1),
     })
 }
 
