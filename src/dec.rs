@@ -293,32 +293,28 @@ impl<'a> CobsDecoder<'a> {
     }
 }
 
-/// The [`CobsDecoderHeapless`] type is used to decode a stream of bytes to a given mutable output
-/// slice. It owns the heapless decoding buffer.
+/// The [`CobsDecoderArray`] type is used to decode a stream of bytes to a given mutable output
+/// slice. It owns the decoding buffer as an array.
 ///
-/// This structure uses a heapless vector as the decoding buffer to avoid lifetimes.
-#[derive(Default, Debug)]
-pub struct CobsDecoderHeapless<const N: usize> {
-    /// Destination slice for decoded message
-    dest: heapless::Vec<u8, N>,
+/// This structure needs neither an allocator nor a lifetime, so it can also live in a `static`.
+#[derive(Debug)]
+pub struct CobsDecoderArray<const N: usize> {
+    /// Destination buffer for decoded message
+    dest: [u8; N],
     inner: CobsDecoderInner,
 }
 
-impl<const N: usize> CobsDecoderHeapless<N> {
-    /// This constructor internally creates the heapless vector.
-    pub fn new() -> Self {
-        let vec = heapless::Vec::new();
-        Self::new_with_vec(vec)
+impl<const N: usize> Default for CobsDecoderArray<N> {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    /// This constructor allows passing the heapless vector to use.
-    ///
-    /// This can be useful to place the heapless vector into the static BSS section instead of the
-    /// stack.
-    pub fn new_with_vec(mut vec: heapless::Vec<u8, N>) -> Self {
-        vec.resize(vec.capacity(), 0).unwrap();
+impl<const N: usize> CobsDecoderArray<N> {
+    /// Create a new streaming decoder with a zeroed buffer.
+    pub const fn new() -> Self {
         Self {
-            dest: vec,
+            dest: [0; N],
             inner: CobsDecoderInner::new(),
         }
     }
@@ -375,6 +371,9 @@ impl<const N: usize> CobsDecoderHeapless<N> {
         self.inner = Default::default();
     }
 }
+
+#[deprecated(since = "0.6.0", note = "renamed to CobsDecoderArray")]
+pub type CobsDecoderHeapless<const N: usize> = CobsDecoderArray<N>;
 
 /// The [`CobsDecoderOwned`] type is used to decode a stream of bytes to a given mutable output
 /// slice. It owns the decoding buffer.
@@ -688,8 +687,8 @@ mod tests {
         }
     }
 
-    fn continuous_decoding_heapless(
-        decoder: &mut CobsDecoderHeapless<32>,
+    fn continuous_decoding_array(
+        decoder: &mut CobsDecoderArray<32>,
         expected_data: &[u8],
         encoded_frame: &[u8],
     ) {
@@ -752,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_continuously_heapless() {
+    fn stream_continuously_array() {
         let data = b"hello world";
         let mut encoded_data: [u8; 16] = [0; 16];
         let mut encoded_len = encode(data, &mut encoded_data);
@@ -760,8 +759,8 @@ mod tests {
         encoded_data[encoded_len] = 0x00;
         encoded_len += 1;
         // Stream continuously using only `push`. The decoding buffer should not overflow.
-        let mut decoder = CobsDecoderHeapless::new();
-        continuous_decoding_heapless(&mut decoder, data, &encoded_data[0..encoded_len]);
+        let mut decoder = CobsDecoderArray::new();
+        continuous_decoding_array(&mut decoder, data, &encoded_data[0..encoded_len]);
     }
 
     #[test]
@@ -819,14 +818,36 @@ mod tests {
     }
 
     #[test]
-    fn test_decoder_heapless_push_function() {
+    fn test_decoder_array_push_function() {
         let data = b"hello world";
         let encoded_data = encode_vec_including_sentinels(data);
-        let mut decoder = CobsDecoderHeapless::<32>::new();
+        let mut decoder = CobsDecoderArray::<32>::new();
         let report = decoder.push(&encoded_data).unwrap().unwrap();
         assert_eq!(report.parsed_size(), encoded_data.len());
         assert_eq!(report.frame_size(), data.len());
         assert_eq!(&decoder.dest()[0..report.frame_size()], data);
         assert_eq!(&decoder.dest_mut()[0..report.frame_size()], data);
+    }
+
+    #[test]
+    fn test_decoder_array_default_decodes() {
+        let data = b"hello world";
+        let encoded_data = encode_vec_including_sentinels(data);
+        let mut decoder = CobsDecoderArray::<32>::default();
+        let report = decoder.push(&encoded_data).unwrap().unwrap();
+        assert_eq!(&decoder.dest()[0..report.frame_size()], data);
+    }
+
+    #[test]
+    fn test_decoder_array_in_static() {
+        static DECODER: CobsDecoderArray<16> = CobsDecoderArray::new();
+        assert_eq!(DECODER.dest().len(), 16);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_decoder_heapless_alias() {
+        let decoder: CobsDecoderHeapless<8> = CobsDecoderHeapless::new();
+        assert_eq!(decoder.dest().len(), 8);
     }
 }

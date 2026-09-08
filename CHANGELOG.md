@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+## Changed
+
+- `CobsDecoderHeapless` is now `CobsDecoderArray` and backed by a plain array. The old name
+  remains as a deprecated alias.
+
+## Removed
+
+- The `heapless` dependency and `CobsDecoderHeapless::new_with_vec`.
+
+## Fixed
+
+- `CobsDecoderHeapless::default()` returned a decoder with an empty buffer that could not decode
+  anything.
+
 # [v0.5.1] 2026-03-03
 
 ## Changed
