@@ -299,7 +299,7 @@ pub fn encode_vec(source: &[u8]) -> alloc::vec::Vec<u8> {
 pub fn encode_vec_including_sentinels(source: &[u8]) -> alloc::vec::Vec<u8> {
     let mut encoded = alloc::vec![0; crate::max_encoding_length(source.len()) + 2];
     let encoded_len = encode_including_sentinels(source, &mut encoded);
-    encoded.truncate(encoded_len + 2);
+    encoded.truncate(encoded_len);
     encoded
 }
 
@@ -407,6 +407,17 @@ mod tests {
         assert_eq!(data_decoded, data);
         let data_decoded = decode_vec(&encoded[1..encoded.len() - 1]).unwrap();
         assert_eq!(data_decoded, data);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_encoding_including_sentinels_shorter_than_max() {
+        // A zero every 50 bytes keeps the frame below max_encoding_length.
+        let data: [u8; 600] = core::array::from_fn(|i| u8::from(i % 50 != 0));
+        let mut expected = [0xFFu8; crate::max_encoding_length(600) + 2];
+        let expected_len = encode_including_sentinels(&data, &mut expected);
+        let encoded = encode_vec_including_sentinels(&data);
+        assert_eq!(encoded, &expected[..expected_len]);
     }
 
     #[test]
