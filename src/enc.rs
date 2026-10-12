@@ -374,9 +374,9 @@ mod tests {
         let expected = &[3, 10, 11, 2, 12];
         for len in 0..expected.len() {
             let mut dest = [0u8; 5];
-            matches!(
-                try_encode(source, &mut dest[..len]).unwrap_err(),
-                DestBufTooSmallError
+            assert_eq!(
+                try_encode(source, &mut dest[..len]),
+                Err(DestBufTooSmallError)
             );
         }
     }

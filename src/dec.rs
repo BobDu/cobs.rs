@@ -654,22 +654,16 @@ mod tests {
     #[test]
     fn decode_empty() {
         #[cfg(feature = "alloc")]
-        matches!(decode_vec(&[]).unwrap_err(), DecodeError::EmptyFrame);
-        matches!(
-            decode_in_place(&mut []).unwrap_err(),
-            DecodeError::EmptyFrame
-        );
-        matches!(
-            decode(&[], &mut [0; 256]).unwrap_err(),
-            DecodeError::EmptyFrame
-        );
+        assert_eq!(decode_vec(&[]), Err(DecodeError::EmptyFrame));
+        assert_eq!(decode_in_place(&mut []), Err(DecodeError::EmptyFrame));
+        assert_eq!(decode(&[], &mut [0; 256]), Err(DecodeError::EmptyFrame));
     }
 
     #[test]
     fn decode_target_buf_too_small() {
         let encoded = &[3, 10, 11, 2, 12];
         let expected_decoded_len = 4;
-        for i in 0..expected_decoded_len - 1 {
+        for i in 0..expected_decoded_len {
             let mut dest = [0u8; 4];
             let result = decode(encoded, &mut dest[..i]);
             assert_eq!(result, Err(DecodeError::TargetBufTooSmall));

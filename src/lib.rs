@@ -51,7 +51,8 @@ pub const fn max_encoding_overhead(source_len: usize) -> usize {
 
 /// Calculates the maximum possible size of an encoded message given the length
 /// of the source message. This may be useful for calculating how large the
-/// `dest` buffer needs to be in the encoding functions.
+/// `dest` buffer needs to be in the encoding functions. The sentinel bytes written by
+/// the `*_including_sentinels` functions are not included.
 #[inline]
 pub const fn max_encoding_length(source_len: usize) -> usize {
     source_len + max_encoding_overhead(source_len)
@@ -128,6 +129,13 @@ mod tests {
     #[test]
     fn test_overhead_two() {
         assert_eq!(max_encoding_overhead(255), 2);
+    }
+
+    #[test]
+    fn error_types_implement_error() {
+        fn assert_error<E: core::error::Error>() {}
+        assert_error::<DecodeError>();
+        assert_error::<DestBufTooSmallError>();
     }
 
     #[test]
